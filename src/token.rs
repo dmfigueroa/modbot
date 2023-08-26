@@ -160,10 +160,11 @@ async fn auth_callback(
 pub async fn start_server() -> Result<TwitchToken, Box<dyn std::error::Error>> {
     let (sender, mut receiver) = mpsc::channel(1);
 
+    // Create a service function to handle incoming requests
     let make_svc = make_service_fn(move |_conn| {
         let sender_clone = sender.clone();
         let service = service_fn(move |req| handle_request(req, sender_clone.clone()));
-        async move { Ok::<_, hyper::Error>(service) }
+        async { Ok::<_, hyper::Error>(service) }
     });
 
     let addr = ([127, 0, 0, 1], 3000).into();
@@ -178,8 +179,11 @@ pub async fn start_server() -> Result<TwitchToken, Box<dyn std::error::Error>> {
         }
     });
 
-    // Wait for the token
-    let token = receiver.recv().await.ok_or("Failed to receive token")?;
+    // Wait for the token from the receiver
+    let token = receiver
+        .recv()
+        .await
+        .ok_or_else(|| "Failed to receive token from the channel".to_string())?;
 
     Ok(token)
 }

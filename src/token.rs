@@ -90,7 +90,7 @@ async fn twitch_auth() -> Result<Response<Body>, hyper::Error> {
     Ok(response)
 }
 
-pub async fn update_credentials(_tokens: TwitchToken) {
+pub async fn update_credentials(_token: TwitchToken) {
     // Implement the logic to update credentials here
 }
 
@@ -127,7 +127,7 @@ async fn auth_callback(
     match response {
         Ok(resp) if resp.status().is_success() => {
             let data: Value = resp.json().await.expect("Failed to parse JSON");
-            let tokens = TwitchToken {
+            let token = TwitchToken {
                 access_token: AccessToken::from(
                     data["access_token"]
                         .as_str()
@@ -144,8 +144,8 @@ async fn auth_callback(
                 token_type: TokenType::Bearer,
                 scopes: Some(SCOPES.to_vec()),
             };
-            update_credentials(tokens.clone()).await;
-            tx.send(tokens).await.expect("Failed to send tokens");
+            update_credentials(token.clone()).await;
+            tx.send(token).await.expect("Failed to send tokens");
             Ok(Response::new(Body::from(
                 "Authentication was successful! You can close this window now.",
             )))
@@ -170,7 +170,7 @@ pub async fn start_server() -> Result<TwitchToken, Box<dyn std::error::Error>> {
     let addr = ([127, 0, 0, 1], 3000).into();
     let server = Server::bind(&addr).serve(make_svc);
 
-    println!("Listening on http://{}", addr);
+    println!("Open http://{}/auth/twitch to get your Twitch token", addr);
 
     // Start the server in a separate Tokio task
     tokio::spawn(async move {

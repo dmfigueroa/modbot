@@ -1,8 +1,11 @@
+pub mod db;
 pub mod token;
 
 use dotenv::dotenv;
-use oauth2::Token;
+use keyring::Keyring;
+use sequelite::prelude::Connection;
 
+use crate::db::Access;
 use crate::token::start_server;
 
 #[macro_use]
@@ -18,5 +21,11 @@ async fn main() {
 
     let token_response = start_server().await.unwrap();
 
-    println!("{:?}", token_response)
+    println!("{:?}", token_response);
+}
+
+fn setup_db() {
+    let mut conn = Connection::new("database.db").unwrap();
+
+    conn.register::<Access>();
 }

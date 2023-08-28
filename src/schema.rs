@@ -5,6 +5,6 @@ diesel::table! {
         id -> Nullable<Integer>,
         access_token -> Text,
         refresh_token -> Text,
-        expires_in -> Nullable<Integer>,
+        expires_at -> Timestamp,
     }
 }

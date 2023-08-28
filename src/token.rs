@@ -3,13 +3,18 @@ use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
 
+use chrono::{NaiveDateTime, Utc};
 use hyper::header::LOCATION;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server, StatusCode};
 use oauth2::{AccessToken, RefreshToken, Scope, Token, TokenType};
 use serde_json::Value;
 use tokio::sync::mpsc;
+
+use crate::db::{establish_connection, Access};
 extern crate url;
+use diesel::prelude::*;
+use diesel::RunQueryDsl;
 
 lazy_static! {
     static ref SCOPES: Vec<Scope> = vec![
@@ -26,14 +31,9 @@ lazy_static! {
 pub struct TwitchToken {
     access_token: AccessToken,
     token_type: TokenType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    expires_in: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    refresh_token: Option<RefreshToken>,
-    #[serde(rename = "scope")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    scopes: Option<Vec<Scope>>,
+    expires_at: NaiveDateTime,
+    refresh_token: RefreshToken,
+    scope: Vec<Scope>,
 }
 
 impl Token for TwitchToken {
@@ -46,15 +46,23 @@ impl Token for TwitchToken {
     }
 
     fn expires_in(&self) -> Option<Duration> {
-        self.expires_in.map(Duration::from_secs)
+        let now = Utc::now().naive_utc();
+        if self.expires_at > now {
+            Some(Duration::new(
+                (self.expires_at - now).num_milliseconds().unsigned_abs(),
+                0,
+            ))
+        } else {
+            None
+        }
     }
 
     fn refresh_token(&self) -> Option<&RefreshToken> {
-        self.refresh_token.as_ref()
+        Some(&self.refresh_token)
     }
 
     fn scopes(&self) -> Option<&Vec<Scope>> {
-        self.scopes.as_ref()
+        Some(&self.scope)
     }
 }
 
@@ -90,8 +98,44 @@ async fn twitch_auth() -> Result<Response<Body>, hyper::Error> {
     Ok(response)
 }
 
-pub async fn update_credentials(_token: TwitchToken) {
-    // Implement the logic to update credentials here
+// pub async fn get_token() -> TwitchToken {}
+
+pub fn update_credentials(token: TwitchToken) -> Result<(), diesel::result::Error> {
+    use crate::schema::access::dsl::{access, access_token, expires_at, id, refresh_token};
+
+    println!("Storing credentials");
+
+    let connection = &mut establish_connection();
+
+    let not_exists: bool = access
+        .filter(id.eq(1))
+        .limit(1)
+        .load::<Access>(connection)?
+        .is_empty();
+
+    if not_exists {
+        diesel::insert_into(access)
+            .values((
+                id.eq(1),
+                access_token.eq(token.access_token.to_string()),
+                expires_at.eq(token.expires_at),
+                refresh_token.eq(token.refresh_token.to_string()),
+            ))
+            .execute(connection)?;
+
+        println!("New access added to the database");
+    } else {
+        diesel::update(access.filter(id.eq(1)))
+            .set((
+                access_token.eq(token.access_token.to_string()),
+                expires_at.eq(token.expires_at),
+                refresh_token.eq(token.refresh_token.to_string()),
+            ))
+            .execute(connection)?;
+        println!("Access updated on the database");
+    }
+
+    Ok(())
 }
 
 async fn create_token_params(code: Option<String>) -> HashMap<&'static str, String> {
@@ -134,17 +178,18 @@ async fn auth_callback(
                         .expect("access_token not found")
                         .to_string(),
                 ),
-                refresh_token: Some(RefreshToken::from(
+                refresh_token: RefreshToken::from(
                     data["refresh_token"]
                         .as_str()
                         .expect("refresh_token not found")
                         .to_string(),
-                )),
-                expires_in: data["expires_in"].as_u64(),
+                ),
+                expires_at: Utc::now().naive_utc()
+                    + chrono::Duration::seconds(data["expires_in"].as_i64().unwrap()),
                 token_type: TokenType::Bearer,
-                scopes: Some(SCOPES.to_vec()),
+                scope: SCOPES.to_vec(),
             };
-            update_credentials(token.clone()).await;
+            update_credentials(token.clone()).unwrap();
             tx.send(token).await.expect("Failed to send tokens");
             Ok(Response::new(Body::from(
                 "Authentication was successful! You can close this window now.",

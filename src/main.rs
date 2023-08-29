@@ -4,7 +4,7 @@ pub mod token;
 
 use dotenv::dotenv;
 
-use crate::token::start_server;
+use crate::token::get_token;
 
 #[macro_use]
 extern crate lazy_static;
@@ -17,7 +17,7 @@ async fn main() {
 
     println!("Starting credentials server");
 
-    let token_response = start_server().await.unwrap();
+    let token_response = get_token().await.unwrap();
 
     println!("{:?}", token_response);
 }
